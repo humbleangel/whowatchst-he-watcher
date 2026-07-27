@@ -1,0 +1,18 @@
+{
+  "name": "whowatchst-he-watcher",
+  "version": "1.0.0",
+  "description": "Codebase indexer: watches files, extracts structure/pieces via LLM, serves web UI",
+  "main": "index.js",
+  "bin": {
+    "wwsw": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test/run.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/humbleangel/whowatchst-he-watcher"
+  },
+  "license": "MIT"
+}
