@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const path = require('path')
 const Watcher = require('./watcher')
-const { runPipeline } = require('./pipeline')
+const { runPipeline, analyzeSingleFile } = require('./pipeline')
 const { createServer } = require('./server')
 const Store = require('./store')
 
@@ -30,16 +30,26 @@ async function main() {
   console.log(`WWWS watching: ${opts.rootPath}`)
   console.log(`  port: ${opts.port}, interval: ${opts.interval}ms`)
 
+  const analyzeRequests = new Map()
+  store.analyzer = async (relPath) => {
+    if (analyzeRequests.has(relPath)) return analyzeRequests.get(relPath)
+    const p = analyzeSingleFile(opts.rootPath, relPath, opts.apiKey).then(r => {
+      analyzeRequests.delete(relPath)
+      return r
+    }).catch(e => {
+      analyzeRequests.delete(relPath)
+      return { error: e.message }
+    })
+    analyzeRequests.set(relPath, p)
+    return p
+  }
+
   const server = createServer(store, opts.port)
 
   const watcher = new Watcher(opts.rootPath, opts.interval, async () => {
-    const result = await runPipeline(opts.rootPath, opts.apiKey, {
-      onFileDone: (relPath, error, done, total) => {
-        const icon = error ? '!' : '.'
-        console.log(`  ${icon} ${relPath}${error ? ' (' + error + ')' : ''}`)
-      }
-    })
-    console.log(`  cycle ${result.delta.cycle}: ${result.filesProcessed}/${result.totalFiles} files, ${result.delta.added.length} added, ${result.delta.modified.length} modified`)
+    console.log(`  scan ${new Date().toLocaleTimeString()} ...`)
+    const result = await runPipeline(opts.rootPath, opts.apiKey, {})
+    console.log(`  cycle ${result.delta.cycle}: ${Object.keys(result.files).length} files, ${result.delta.added.length} added, ${result.delta.modified.length} modified`)
     server.broadcast('index-complete', { cycle: result.delta.cycle, timestamp: result.delta.timestamp })
     return result
   })

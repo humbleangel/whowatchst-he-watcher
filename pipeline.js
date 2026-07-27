@@ -17,80 +17,64 @@ async function runPipeline(rootPath, apiKey, callbacks) {
     role: detectRole(fp)
   })))
 
-  const graph = []
-  const piecesMap = {}
   const storeFiles = {}
-  let filesProcessed = 0
-  const llmFiles = allFiles.filter(f => {
+
+  for (const f of allFiles) {
     const name = path.basename(f.fullPath)
-    if (!isTextFile(name)) {
-      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'binary', pieces: [] }
-      return false
-    }
-    if (f.lines <= 0) {
-      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'empty', pieces: [] }
-      return false
-    }
-    if (f.lines > 5000) {
-      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'too large', pieces: [] }
-      return false
-    }
-    if (!isCodeFile(name)) {
-      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'documentation', pieces: [] }
-      return false
-    }
-    return true
-  })
-  const totalFiles = llmFiles.length
+    const base = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, pieces: [] }
 
-  const CONCURRENCY = 5
-  let idx = 0
+    if (!isTextFile(name)) { storeFiles[f.path] = { ...base, summary: 'binary' }; continue }
+    if (f.lines <= 0) { storeFiles[f.path] = { ...base, summary: 'empty' }; continue }
+    if (f.lines > 5000) { storeFiles[f.path] = { ...base, summary: 'too large' }; continue }
+    if (!isCodeFile(name)) { storeFiles[f.path] = { ...base, summary: 'documentation' }; continue }
 
-  async function worker() {
-    while (idx < llmFiles.length) {
-      const myIdx = idx++
-      const f = llmFiles[myIdx]
-      const { fullPath, path: relPath } = f
-      const baseInfo = { lines: f.lines, role: f.role, isEntry: f.isEntry }
-
-      const result = await analyzeFile(fullPath, apiKey)
-      filesProcessed++
-      if (callbacks && callbacks.onFileDone) {
-        callbacks.onFileDone(relPath, result.error, filesProcessed, totalFiles)
-      }
-
-      const pieceNames = result.pieces.map(p => {
-        const key = `${relPath}:${p.name}`
-        piecesMap[key] = { ...p, key }
-        if (p.references && p.references.length > 0) {
-          for (const ref of p.references) {
-            graph.push({ from: key, to: ref, type: 'call' })
-          }
-        }
-        return p.name
-      })
-
-      storeFiles[relPath] = { path: relPath, ...baseInfo, summary: result.summary, pieces: pieceNames }
-    }
+    storeFiles[f.path] = { ...base, summary: 'pending' }
   }
-
-  const workers = []
-  for (let i = 0; i < Math.min(CONCURRENCY, llmFiles.length); i++) workers.push(worker())
-  await Promise.all(workers)
 
   const prevSnapshot = store.getSnapshot()
 
   store.files = storeFiles
   store.folders = Object.fromEntries(folders.map(f => [f.path, f]))
-  store.pieces = piecesMap
-  store.graph = graph
+  store.pieces = {}
+  store.graph = []
 
   const newSnapshot = store.getSnapshot()
   const delta = store.recordDelta(prevSnapshot, newSnapshot)
 
   store.saveAll()
 
-  return { folders, files: storeFiles, pieces: piecesMap, graph, delta, totalFiles, filesProcessed }
+  if (callbacks && callbacks.onFileDone) callbacks.onFileDone(null, null, allFiles.length, allFiles.length)
+
+  return { folders, files: storeFiles, pieces: {}, graph: [], delta, totalFiles: allFiles.length, filesProcessed: allFiles.length }
 }
 
-module.exports = { runPipeline }
+async function analyzeSingleFile(rootPath, relPath, apiKey) {
+  const store = new Store(rootPath).init()
+  const fullPath = path.join(rootPath, relPath)
+  const result = await analyzeFile(fullPath, apiKey)
+
+  if (result.error) return result
+
+  const piecesMap = {}
+  const graph = []
+  const pieceNames = result.pieces.map(p => {
+    const key = `${relPath}:${p.name}`
+    piecesMap[key] = { ...p, key }
+    if (p.references && p.references.length > 0) {
+      for (const ref of p.references) graph.push({ from: key, to: ref, type: 'call' })
+    }
+    return p.name
+  })
+
+  Object.assign(store.pieces, piecesMap)
+  store.graph = [...store.graph, ...graph]
+  if (store.files[relPath]) {
+    store.files[relPath].summary = result.summary
+    store.files[relPath].pieces = pieceNames
+  }
+  store.saveAll()
+
+  return { summary: result.summary, pieces: result.pieces, error: null }
+}
+
+module.exports = { runPipeline, analyzeSingleFile }

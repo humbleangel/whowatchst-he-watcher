@@ -82,6 +82,15 @@ function createServer(store, port) {
         return sendJSON(res, { ...fileData, pieces })
       }
 
+      if (p === '/api/analyze') {
+        const fp = url.searchParams.get('path')
+        if (!fp) return sendJSON(res, { error: 'missing path' }, 400)
+        if (!store.analyzer) return sendJSON(res, { error: 'analyzer not configured' }, 503)
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        store.analyzer(fp).then(r => res.end(JSON.stringify(r))).catch(e => res.end(JSON.stringify({ error: e.message })))
+        return
+      }
+
       return sendJSON(res, { error: 'not found' }, 404)
     }
 
