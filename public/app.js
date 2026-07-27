@@ -171,9 +171,6 @@ function selectFile(fp) {
 
   const isPending = data.summary === 'pending'
   const hasPieces = (data.pieces || []).length > 0
-  const analyzeBtn = isPending
-    ? `<button id="analyze-btn" onclick="analyzeFile('${fp.replace(/'/g, "\\'")}')">Analyze with LLM</button>`
-    : (hasPieces ? '' : '<span style="color:#555;font-size:12px">No pieces (not a code file)</span>')
 
   content.innerHTML = `
     <div class="detail-section">
@@ -189,28 +186,9 @@ function selectFile(fp) {
     </div>
     <div class="detail-section">
       <h2>Pieces</h2>
-      <div>${piecesHTML || analyzeBtn}</div>
+      <div>${piecesHTML || (isPending ? '<span style="color:#555">analyzing...</span>' : '<span style="color:#555">none</span>')}</div>
     </div>
   `
-}
-
-async function analyzeFile(fp) {
-  const btn = document.getElementById('analyze-btn')
-  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing... (30-60s)' }
-  try {
-    const res = await fetch('/api/analyze?path=' + encodeURIComponent(fp))
-    const data = await res.json()
-    if (data.error) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Retry' }
-      alert('Error: ' + data.error)
-      return
-    }
-    await loadAll()
-    selectFile(fp)
-  } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Retry' }
-    alert('Failed: ' + e.message)
-  }
 }
 
 async function loadAll() {
@@ -235,6 +213,23 @@ async function loadAll() {
 
 function connectSSE() {
   const es = new EventSource('/api/events')
+  es.addEventListener('scan-complete', (e) => {
+    const { total } = JSON.parse(e.data)
+    document.getElementById('status').textContent = `analyzing ${total} files...`
+  })
+  es.addEventListener('file-analyzed', async (e) => {
+    const { path: fp, error, done, total } = JSON.parse(e.data)
+    document.getElementById('status').textContent = `analyzing ${done}/${total} files`
+    if (!error && currentPath === fp) {
+      await loadAll()
+      selectFile(fp)
+    }
+  })
+  es.addEventListener('all-complete', (e) => {
+    const { total } = JSON.parse(e.data)
+    document.getElementById('status').textContent = `${total} files analyzed`
+    loadAll()
+  })
   es.addEventListener('index-complete', (e) => {
     const data = JSON.parse(e.data)
     document.getElementById('status').textContent = `cycle ${data.cycle}: ${new Date(data.timestamp).toLocaleTimeString()}`

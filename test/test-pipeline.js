@@ -23,10 +23,17 @@ llm.analyzeFile = async (fp) => ({
 })
 
 async function run() {
-  const store = new (require('../store'))(fixture).init()
-  const { folders, files, graph, delta } = await runPipeline(fixture, 'test-key', {
-    onFileDone: () => {}
+  const Store = require('../store')
+  const store = new Store(fixture).init()
+  const result = await runPipeline(store, 'test-key', {
+    onScanComplete: () => {},
+    onFileAnalyzed: () => {},
+    onAllComplete: () => {}
   })
+  const { folders, files, graph, delta } = result
+
+  // wait for background mock analysis to finish
+  if (store._analysisPromise) await store._analysisPromise
 
   llm.analyzeFile = origAnalyze
 
