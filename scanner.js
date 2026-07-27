@@ -55,7 +55,8 @@ function getEntryPoints(filePaths) {
 function countLines(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8')
-    return content.split('\n').length
+    const lines = content.split('\n')
+    return lines[lines.length - 1] === '' ? lines.length - 1 : lines.length
   } catch {
     return -1
   }
@@ -64,14 +65,16 @@ function countLines(filePath) {
 function detectRole(filePath) {
   const name = path.basename(filePath).toLowerCase()
   const dir = path.dirname(filePath).toLowerCase()
+  const lastDir = dir.split(/[/\\]/).filter(Boolean).pop() || ''
 
-  if (name.endsWith('.test.') || name.endsWith('.spec.') || name.endsWith('_test.') || dir.includes('test') || dir.includes('__tests__')) return 'test'
   if (name === 'index.js' || name === 'index.ts' || name === 'main.js' || name === 'main.ts' || name === 'app.js' || name === 'app.ts') return 'entry'
-  if (dir.endsWith('config') || dir.endsWith('configs') || name.startsWith('.') || name.endsWith('.config.') || name.endsWith('rc')) return 'config'
-  if (dir.endsWith('types') || dir.endsWith('interfaces') || dir.endsWith('typings')) return 'type'
-  if (dir.endsWith('model') || dir.endsWith('models') || dir.endsWith('entity') || dir.endsWith('entities')) return 'model'
-  if (dir.endsWith('service') || dir.endsWith('services') || dir.endsWith('api')) return 'service'
-  if (dir.endsWith('controller') || dir.endsWith('controllers') || dir.endsWith('route') || dir.endsWith('routes')) return 'controller'
+  if (name.includes('.test.') || name.includes('.spec.') || name.endsWith('_test.') || lastDir === 'test' || lastDir === '__tests__' || lastDir === 'spec') return 'test'
+  if (name.endsWith('.d.ts')) return 'type'
+  if (lastDir === 'config' || lastDir === 'configs' || name.startsWith('.')) return 'config'
+  if (lastDir === 'types' || lastDir === 'interfaces' || lastDir === 'typings' || lastDir === 'type') return 'type'
+  if (lastDir === 'model' || lastDir === 'models' || lastDir === 'entity' || lastDir === 'entities') return 'model'
+  if (lastDir === 'service' || lastDir === 'services' || lastDir === 'api') return 'service'
+  if (lastDir === 'controller' || lastDir === 'controllers' || lastDir === 'route' || lastDir === 'routes') return 'controller'
   return 'module'
 }
 

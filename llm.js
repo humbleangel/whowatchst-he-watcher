@@ -112,4 +112,4 @@ async function analyzeFile(filePath, apiKey) {
   }
 }
 
-module.exports = { analyzeFile }
+module.exports = { analyzeFile, buildPrompt, parseResponse }
