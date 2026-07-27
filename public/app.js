@@ -193,21 +193,17 @@ function selectFile(fp) {
 
 async function loadAll() {
   try {
-    const [fData, fiData, pData, status] = await Promise.all([
+    const [fData, fiData, pData] = await Promise.all([
       fetchJSON('/api/folders'),
       fetchJSON('/api/files'),
-      fetchJSON('/api/pieces'),
-      fetchJSON('/api/status')
+      fetchJSON('/api/pieces')
     ])
     folders = Object.fromEntries(fData.map(f => [f.path, f]))
     files = Object.fromEntries(fiData.map(f => [f.path, f]))
     pieces = Object.fromEntries(pData.map(p => [p.key || `${p.filesUsed?.[0] || ''}:${p.name}`, p]))
 
     renderTree(fData)
-    document.getElementById('status').textContent =
-      status.lastCycle ? `last: ${status.lastCycle}` : 'indexing...'
   } catch (err) {
-    document.getElementById('status').textContent = 'waiting for server...'
   }
 }
 
@@ -239,5 +235,8 @@ function connectSSE() {
   es.onerror = () => {}
 }
 
-loadAll()
+loadAll().then(() => {
+  const pending = Object.values(files).filter(f => f.summary === 'pending').length
+  document.getElementById('status').textContent = pending > 0 ? `${Object.keys(files).length} files, awaiting analysis...` : 'ready'
+})
 connectSSE()
