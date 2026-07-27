@@ -1,5 +1,5 @@
 const { scanFolders, countLines, detectRole, isEntryPoint, getEntryPoints } = require('./scanner')
-const { isTextFile } = require('./ignore')
+const { isTextFile, isCodeFile } = require('./ignore')
 const { analyzeFile } = require('./llm')
 const Store = require('./store')
 const path = require('path')
@@ -19,51 +19,68 @@ async function runPipeline(rootPath, apiKey, callbacks) {
 
   const graph = []
   const piecesMap = {}
+  const storeFiles = {}
   let filesProcessed = 0
-  const totalFiles = allFiles.filter(f => isTextFile(path.basename(f.fullPath)) && f.lines > 0 && f.lines <= 5000).length
-
-  for (const f of allFiles) {
-    const { fullPath, path: relPath } = f
-    const name = path.basename(fullPath)
-    const baseInfo = { lines: f.lines, role: f.role, isEntry: f.isEntry }
-
+  const llmFiles = allFiles.filter(f => {
+    const name = path.basename(f.fullPath)
     if (!isTextFile(name)) {
-      store.files[relPath] = { path: relPath, ...baseInfo, summary: 'binary', pieces: [], role: f.role, isEntry: f.isEntry }
-      continue
+      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'binary', pieces: [] }
+      return false
     }
-
     if (f.lines <= 0) {
-      store.files[relPath] = { path: relPath, ...baseInfo, summary: 'empty', pieces: [] }
-      continue
+      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'empty', pieces: [] }
+      return false
     }
-
     if (f.lines > 5000) {
-      store.files[relPath] = { path: relPath, ...baseInfo, summary: 'too large', pieces: [] }
-      continue
+      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'too large', pieces: [] }
+      return false
     }
-
-    const result = await analyzeFile(fullPath, apiKey)
-    filesProcessed++
-    if (callbacks && callbacks.onFileDone) {
-      callbacks.onFileDone(relPath, result.error, filesProcessed, totalFiles)
+    if (!isCodeFile(name)) {
+      storeFiles[f.path] = { path: f.path, lines: f.lines, role: f.role, isEntry: f.isEntry, summary: 'documentation', pieces: [] }
+      return false
     }
+    return true
+  })
+  const totalFiles = llmFiles.length
 
-    const pieceNames = result.pieces.map(p => {
-      const key = `${relPath}:${p.name}`
-      piecesMap[key] = { ...p, key }
-      if (p.references && p.references.length > 0) {
-        for (const ref of p.references) {
-          graph.push({ from: key, to: ref, type: 'call' })
-        }
+  const CONCURRENCY = 5
+  let idx = 0
+
+  async function worker() {
+    while (idx < llmFiles.length) {
+      const myIdx = idx++
+      const f = llmFiles[myIdx]
+      const { fullPath, path: relPath } = f
+      const baseInfo = { lines: f.lines, role: f.role, isEntry: f.isEntry }
+
+      const result = await analyzeFile(fullPath, apiKey)
+      filesProcessed++
+      if (callbacks && callbacks.onFileDone) {
+        callbacks.onFileDone(relPath, result.error, filesProcessed, totalFiles)
       }
-      return p.name
-    })
 
-    store.files[relPath] = { path: relPath, ...baseInfo, summary: result.summary, pieces: pieceNames }
+      const pieceNames = result.pieces.map(p => {
+        const key = `${relPath}:${p.name}`
+        piecesMap[key] = { ...p, key }
+        if (p.references && p.references.length > 0) {
+          for (const ref of p.references) {
+            graph.push({ from: key, to: ref, type: 'call' })
+          }
+        }
+        return p.name
+      })
+
+      storeFiles[relPath] = { path: relPath, ...baseInfo, summary: result.summary, pieces: pieceNames }
+    }
   }
+
+  const workers = []
+  for (let i = 0; i < Math.min(CONCURRENCY, llmFiles.length); i++) workers.push(worker())
+  await Promise.all(workers)
 
   const prevSnapshot = store.getSnapshot()
 
+  store.files = storeFiles
   store.folders = Object.fromEntries(folders.map(f => [f.path, f]))
   store.pieces = piecesMap
   store.graph = graph
@@ -73,7 +90,7 @@ async function runPipeline(rootPath, apiKey, callbacks) {
 
   store.saveAll()
 
-  return { folders, files: store.files, pieces: piecesMap, graph, delta, totalFiles, filesProcessed }
+  return { folders, files: storeFiles, pieces: piecesMap, graph, delta, totalFiles, filesProcessed }
 }
 
 module.exports = { runPipeline }
