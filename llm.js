@@ -24,7 +24,7 @@ function parseResponse(raw) {
 async function callNvidia(promptText, apiKey) {
   const messages = [{
     role: 'user',
-    content: `Return ONLY JSON array of blocks. Each block: {startLine:number,endLine:number,name:string,type:"function"|"class"|"interface"|"variable"|"block",summary:string,consumes:string[],produces:string[]}. Cover the full file. Use real function/class/variable names. No other text.
+    content: `Return ONLY JSON array of blocks. Each block: {startLine:number,endLine:number,name:string,type:"function"|"class"|"interface"|"variable"|"block",summary:string,consumes:string[],produces:string[],references:string[]}. Cover the full file. "references" means names of functions/classes from other files that this block calls or uses — skip if none. Use real function/class/variable names. No other text.
 
 ${promptText}`
   }]

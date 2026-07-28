@@ -19,6 +19,7 @@ async function runPipeline(store, apiKey, callbacks) {
 
   const storeFiles = {}
   const codeFiles = []
+  const existingFiles = { ...store.files }
 
   for (const f of allFiles) {
     const name = path.basename(f.fullPath)
@@ -29,6 +30,12 @@ async function runPipeline(store, apiKey, callbacks) {
     if (f.lines > 5000) { storeFiles[f.path] = { ...base, summary: 'too large' }; continue }
     if (!isCodeFile(name)) { storeFiles[f.path] = { ...base, summary: 'documentation' }; continue }
 
+    const existing = existingFiles[f.path]
+    if (existing && existing.lines === f.lines && existing.summary && existing.summary !== 'pending' && existing.summary !== 'error') {
+      storeFiles[f.path] = existing
+      continue
+    }
+
     storeFiles[f.path] = { ...base, summary: 'pending' }
     codeFiles.push(f)
   }
@@ -37,8 +44,7 @@ async function runPipeline(store, apiKey, callbacks) {
 
   store.files = storeFiles
   store.folders = Object.fromEntries(folders.map(f => [f.path, f]))
-  store.pieces = {}
-  store.graph = []
+  store.graph = store.graph || []
 
   const newSnapshot = store.getSnapshot()
   const delta = store.recordDelta(prevSnapshot, newSnapshot)
@@ -78,9 +84,17 @@ async function startBackgroundAnalysis(store, codeFiles, apiKey, callbacks) {
         continue
       }
 
+      for (const key of Object.keys(store.pieces)) {
+        if (key.startsWith(`${relPath}:`)) delete store.pieces[key]
+      }
+      store.graph = store.graph.filter(e => !e.from.startsWith(`${relPath}:`))
+
       const pieceNames = result.pieces.map(p => {
         const key = `${relPath}:${p.name}`
         store.pieces[key] = { ...p, key }
+        for (const ref of (p.references || [])) {
+          store.graph.push({ from: key, to: ref, type: 'call' })
+        }
         return p.name
       })
 
@@ -112,9 +126,17 @@ async function analyzeSingleFile(rootPath, relPath, apiKey) {
 
   if (result.error) return result
 
+  for (const key of Object.keys(store.pieces)) {
+    if (key.startsWith(`${relPath}:`)) delete store.pieces[key]
+  }
+  store.graph = store.graph.filter(e => !e.from.startsWith(`${relPath}:`))
+
   const pieceNames = result.pieces.map(p => {
     const key = `${relPath}:${p.name}`
     store.pieces[key] = { ...p, key }
+    for (const ref of (p.references || [])) {
+      store.graph.push({ from: key, to: ref, type: 'call' })
+    }
     return p.name
   })
 

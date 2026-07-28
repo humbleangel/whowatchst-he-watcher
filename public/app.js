@@ -207,7 +207,7 @@ async function loadAll() {
     ])
     folders = Object.fromEntries(fData.map(f => [f.path, f]))
     files = Object.fromEntries(fiData.map(f => [f.path, f]))
-    pieces = Object.fromEntries(pData.map(p => [p.key || `${p.filesUsed?.[0] || ''}:${p.name}`, p]))
+    pieces = Object.fromEntries(pData.filter(p => p.key).map(p => [p.key, p]))
 
     renderTree(fData)
     selectCurrent()
@@ -237,7 +237,6 @@ function connectSSE() {
   es.addEventListener('index-complete', (e) => {
     const data = JSON.parse(e.data)
     document.getElementById('status').textContent = `cycle ${data.cycle}: ${new Date(data.timestamp).toLocaleTimeString()}`
-    loadAll()
   })
   es.addEventListener('connected', () => {})
   es.onerror = () => {}

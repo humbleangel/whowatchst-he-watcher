@@ -36,8 +36,10 @@ async function main() {
     console.log(`  scan ${new Date().toLocaleTimeString()} ...`)
     const result = await runPipeline(store, opts.apiKey, {
       onScanComplete: ({ total }) => {
-        console.log(`  ${total} code files to analyze`)
-        server.broadcast('scan-complete', { total })
+        if (total > 0) {
+          console.log(`  ${total} code files to analyze`)
+          server.broadcast('scan-complete', { total })
+        }
       },
       onFileAnalyzed: ({ path: fp, error, done, total }) => {
         const icon = error ? '!' : '.'
