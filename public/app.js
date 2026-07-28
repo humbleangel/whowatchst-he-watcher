@@ -192,6 +192,12 @@ function selectFile(fp) {
   `
 }
 
+function selectCurrent() {
+  if (!currentPath) return
+  if (folders[currentPath]) selectFolder(currentPath)
+  else if (files[currentPath]) selectFile(currentPath)
+}
+
 async function loadAll() {
   try {
     const [fData, fiData, pData] = await Promise.all([
@@ -204,6 +210,7 @@ async function loadAll() {
     pieces = Object.fromEntries(pData.map(p => [p.key || `${p.filesUsed?.[0] || ''}:${p.name}`, p]))
 
     renderTree(fData)
+    selectCurrent()
   } catch (err) {
   }
 }
