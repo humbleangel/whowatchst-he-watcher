@@ -17,6 +17,7 @@ function escapeHTML(s) {
 
 function renderTree(foldersList) {
   const tree = document.getElementById('tree')
+  tree.innerHTML = ''
   const root = { path: '.', children: [], files: [] }
 
   for (const f of foldersList) {

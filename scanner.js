@@ -19,7 +19,7 @@ function scanFolders(rootPath) {
         const sub = walk(full)
         folders.push(sub)
       } else if (e.isFile()) {
-        files.push(full)
+        files.push(path.relative(rootPath, full))
       }
     }
 

@@ -10,11 +10,11 @@ async function runPipeline(store, apiKey, callbacks) {
   const { folders } = scanResult
 
   const allFiles = folders.flatMap(f => f.files.map(fp => ({
-    path: path.relative(rootPath, fp),
-    fullPath: fp,
-    lines: countLines(fp),
-    isEntry: isEntryPoint(fp),
-    role: detectRole(fp)
+    path: fp,
+    fullPath: path.join(rootPath, fp),
+    lines: countLines(path.join(rootPath, fp)),
+    isEntry: isEntryPoint(path.join(rootPath, fp)),
+    role: detectRole(path.join(rootPath, fp))
   })))
 
   const storeFiles = {}
