@@ -7,7 +7,7 @@ const Store = require('./store')
 
 function parseArgs() {
   const args = process.argv.slice(2)
-  const opts = { rootPath: process.cwd(), port: 3456, interval: 120000, apiKey: process.env.NVIDIA_API_KEY || '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' }
+  const opts = { rootPath: process.cwd(), port: 3457, interval: 120000, apiKey: process.env.NVIDIA_API_KEY || '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' }
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
