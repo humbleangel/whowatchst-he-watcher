@@ -62,36 +62,8 @@ async function analyzeFile(filePath, apiKey) {
     return { blocks: [], summary: 'too large', pieces: [], error: 'too large' }
   }
 
-  try {
-    const promptText = buildPrompt(filePath)
-    const raw = await callNvidia(promptText, apiKey)
-    const parsed = parseResponse(raw)
-    if (!parsed || !Array.isArray(parsed)) {
-      return { blocks: [], summary: 'parse error', pieces: [], error: 'parse error' }
-    }
-
-    const blocks = parsed.map(b => ({
-      startLine: b.startLine || 0,
-      endLine: b.endLine || 0,
-      desc: b.summary || b.name || ''
-    }))
-
-    const pieces = parsed.map(b => ({
-      name: b.name || 'unnamed',
-      type: b.type || 'block',
-      filesUsed: [filePath],
-      references: [],
-      consumes: b.consumes || [],
-      produces: b.produces || []
-    }))
-
-    const summaryParts = parsed.map(b => b.summary).filter(Boolean)
-    const summary = summaryParts.length > 0
-      ? summaryParts.slice(0, 3).join('; ') + (summaryParts.length > 3 ? ' ...' : '')
-      : 'no summary'
-
-    return { blocks, pieces, summary, error: null }
-  } catch (err) {
+  let lastErr
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const promptText = buildPrompt(filePath)
       const raw = await callNvidia(promptText, apiKey)
@@ -99,17 +71,33 @@ async function analyzeFile(filePath, apiKey) {
       if (!parsed || !Array.isArray(parsed)) {
         return { blocks: [], summary: 'parse error', pieces: [], error: 'parse error' }
       }
-      const blocks = parsed.map(b => ({ startLine: b.startLine || 0, endLine: b.endLine || 0, desc: b.summary || b.name || '' }))
-      const pieces = parsed.map(b => ({
-        name: b.name || 'unnamed', type: b.type || 'block', filesUsed: [filePath], references: [], consumes: b.consumes || [], produces: b.produces || []
+
+      const blocks = parsed.map(b => ({
+        startLine: b.startLine || 0,
+        endLine: b.endLine || 0,
+        desc: b.summary || b.name || ''
       }))
+
+      const pieces = parsed.map(b => ({
+        name: b.name || 'unnamed',
+        type: b.type || 'block',
+        filesUsed: [filePath],
+        references: b.references || [],
+        consumes: b.consumes || [],
+        produces: b.produces || []
+      }))
+
       const summaryParts = parsed.map(b => b.summary).filter(Boolean)
-      const summary = summaryParts.length > 0 ? summaryParts.slice(0, 3).join('; ') + (summaryParts.length > 3 ? ' ...' : '') : 'no summary'
+      const summary = summaryParts.length > 0
+        ? summaryParts.slice(0, 3).join('; ') + (summaryParts.length > 3 ? ' ...' : '')
+        : 'no summary'
+
       return { blocks, pieces, summary, error: null }
-    } catch (err2) {
-      return { blocks: [], summary: 'error', pieces: [], error: err2.message }
+    } catch (err) {
+      lastErr = err
     }
   }
+  return { blocks: [], summary: 'error', pieces: [], error: lastErr.message }
 }
 
 module.exports = { analyzeFile, buildPrompt, parseResponse }

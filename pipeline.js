@@ -1,21 +1,51 @@
+const fs = require('fs')
 const { scanFolders, countLines, detectRole, isEntryPoint, getEntryPoints } = require('./scanner')
 const { isTextFile, isCodeFile } = require('./ignore')
 const { analyzeFile } = require('./llm')
 const Store = require('./store')
 const path = require('path')
 
+function applyAnalysisToStore(store, relPath, result) {
+  for (const key of Object.keys(store.pieces)) {
+    if (key.startsWith(`${relPath}:`)) delete store.pieces[key]
+  }
+  store.graph = store.graph.filter(e => !e.from.startsWith(`${relPath}:`))
+
+  const pieceNames = result.pieces.map(p => {
+    const key = `${relPath}:${p.name}`
+    store.pieces[key] = { ...p, key }
+    for (const ref of (p.references || [])) {
+      store.graph.push({ from: key, to: ref, type: 'call' })
+    }
+    return p.name
+  })
+
+  if (store.files[relPath]) {
+    store.files[relPath].summary = result.summary
+    store.files[relPath].pieces = pieceNames
+  }
+
+  return pieceNames
+}
+
 async function runPipeline(store, apiKey, callbacks) {
   const rootPath = store.rootPath
   const scanResult = scanFolders(rootPath)
   const { folders } = scanResult
 
-  const allFiles = folders.flatMap(f => f.files.map(fp => ({
-    path: fp,
-    fullPath: path.join(rootPath, fp),
-    lines: countLines(path.join(rootPath, fp)),
-    isEntry: isEntryPoint(path.join(rootPath, fp)),
-    role: detectRole(path.join(rootPath, fp))
-  })))
+  const allFiles = folders.flatMap(f => f.files.map(fp => {
+    const fullPath = path.join(rootPath, fp)
+    let mtime = 0
+    try { mtime = fs.statSync(fullPath).mtimeMs } catch {}
+    return {
+      path: fp,
+      fullPath,
+      mtime,
+      lines: countLines(fullPath),
+      isEntry: isEntryPoint(fullPath),
+      role: detectRole(fullPath)
+    }
+  }))
 
   const storeFiles = {}
   const codeFiles = []
@@ -31,7 +61,7 @@ async function runPipeline(store, apiKey, callbacks) {
     if (!isCodeFile(name)) { storeFiles[f.path] = { ...base, summary: 'documentation' }; continue }
 
     const existing = existingFiles[f.path]
-    if (existing && existing.lines === f.lines && existing.summary && existing.summary !== 'pending' && existing.summary !== 'error') {
+    if (existing && existing.mtime === f.mtime && existing.summary && existing.summary !== 'pending' && existing.summary !== 'error') {
       storeFiles[f.path] = existing
       continue
     }
@@ -49,6 +79,7 @@ async function runPipeline(store, apiKey, callbacks) {
   const newSnapshot = store.getSnapshot()
   const delta = store.recordDelta(prevSnapshot, newSnapshot)
   store.saveAll()
+  store.save('graph')
 
   if (callbacks && callbacks.onScanComplete) {
     callbacks.onScanComplete({ total: codeFiles.length })
@@ -59,7 +90,7 @@ async function runPipeline(store, apiKey, callbacks) {
     store._analysisPromise.finally(() => { store._analysisPromise = null })
   }
 
-  return { folders, files: storeFiles, pieces: {}, graph: [], delta, totalFiles: allFiles.length, codeFiles: codeFiles.length }
+  return { folders, files: storeFiles, graph: store.graph, delta, totalFiles: allFiles.length, codeFiles: codeFiles.length }
 }
 
 async function startBackgroundAnalysis(store, codeFiles, apiKey, callbacks) {
@@ -84,25 +115,7 @@ async function startBackgroundAnalysis(store, codeFiles, apiKey, callbacks) {
         continue
       }
 
-      for (const key of Object.keys(store.pieces)) {
-        if (key.startsWith(`${relPath}:`)) delete store.pieces[key]
-      }
-      store.graph = store.graph.filter(e => !e.from.startsWith(`${relPath}:`))
-
-      const pieceNames = result.pieces.map(p => {
-        const key = `${relPath}:${p.name}`
-        store.pieces[key] = { ...p, key }
-        for (const ref of (p.references || [])) {
-          store.graph.push({ from: key, to: ref, type: 'call' })
-        }
-        return p.name
-      })
-
-      if (store.files[relPath]) {
-        store.files[relPath].summary = result.summary
-        store.files[relPath].pieces = pieceNames
-      }
-
+      applyAnalysisToStore(store, relPath, result)
       store.saveAll()
 
       if (callbacks && callbacks.onFileAnalyzed) {
@@ -126,24 +139,7 @@ async function analyzeSingleFile(rootPath, relPath, apiKey) {
 
   if (result.error) return result
 
-  for (const key of Object.keys(store.pieces)) {
-    if (key.startsWith(`${relPath}:`)) delete store.pieces[key]
-  }
-  store.graph = store.graph.filter(e => !e.from.startsWith(`${relPath}:`))
-
-  const pieceNames = result.pieces.map(p => {
-    const key = `${relPath}:${p.name}`
-    store.pieces[key] = { ...p, key }
-    for (const ref of (p.references || [])) {
-      store.graph.push({ from: key, to: ref, type: 'call' })
-    }
-    return p.name
-  })
-
-  if (store.files[relPath]) {
-    store.files[relPath].summary = result.summary
-    store.files[relPath].pieces = pieceNames
-  }
+  applyAnalysisToStore(store, relPath, result)
   store.saveAll()
 
   return { summary: result.summary, pieces: result.pieces, error: null }
